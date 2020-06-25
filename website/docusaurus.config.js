@@ -1,8 +1,8 @@
 module.exports = {
   title: 'RAPID',
   tagline: 'Fastest way to build your RESTful API',
-  url: 'http://oasis-open.github.io',
-  baseUrl: '/odata-rapid/',
+  url: 'https://rapid.rocks',
+  baseUrl: '/',
   favicon: 'img/rest.svg',
   organizationName: 'oasis-open', // Usually your GitHub org/user name.
   projectName: 'odata-rapid', // Usually your repo name.
@@ -20,12 +20,12 @@ module.exports = {
           label: 'Docs',
           position: 'left',
         },
-        {
-          to: 'docs/tutorial/buildserver',
-          label: 'Tutorial',
-          position: 'left',
-          activeBaseRegex: `docs/tutorial/(buildserver|buildclient)`,
-        },
+        // {
+        //   to: 'docs/tutorial/buildserver',
+        //   label: 'Tutorial',
+        //   position: 'left',
+        //   activeBaseRegex: `docs/tutorial/(buildserver|buildclient)`,
+        // },
       ],
     },
     footer: {
@@ -45,7 +45,7 @@ module.exports = {
           items: [
             {
               label: 'Discord',
-              href: 'https://discord.gg/6n5T5r',
+              href: 'https://discord.gg/w9YPQAp',
             },
             {
               label: 'Twitter',
