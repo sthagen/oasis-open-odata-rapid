@@ -1,16 +1,17 @@
-using Microsoft.OData.Edm;
-using rsdl.parser.model;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Threading;
+using Microsoft.OData.Edm;
+using rapid.rdm;
 
-namespace rsdl.parser
+namespace rapid.rsdl
 {
     internal class ModelBuilder
     {
-        private readonly string namespaceName = "rapid";
+        private const string defaultNamespaceName = "Model";
+
+        private readonly string namespaceName;
 
         private readonly RdmDataModel rdmModel;
 
@@ -18,6 +19,7 @@ namespace rsdl.parser
 
         public ModelBuilder(RdmDataModel schema)
         {
+            this.namespaceName = schema.Namespace?.NamespaceName ?? defaultNamespaceName;
             this.rdmModel = schema;
         }
 
@@ -68,14 +70,14 @@ namespace rsdl.parser
 
         private EdmStructuredType AddStructuredType(RdmStructuredType definition)
         {
-            // if the type exists on the edm model, exit imediatly
+            // if the type exists on the edm model, exit immediately
             var decl = edmModel.FindDeclaredType($"{namespaceName}.{definition.Name}");
             if (decl is EdmStructuredType es)
             {
-                return es; 
+                return es;
             }
 
-            // add the type immediatly so that it can be found when resolving property types
+            // add the type immediately so that it can be found when resolving property types
             var edmType = definition.Keys.Any() ?
                 (EdmStructuredType)edmModel.AddEntityType(namespaceName, definition.Name) :
                 (EdmStructuredType)edmModel.AddComplexType(namespaceName, definition.Name);
@@ -85,7 +87,7 @@ namespace rsdl.parser
             {
                 AddProperty(edmType, prop);
             }
-            
+
             // add keys
             if (edmType is EdmEntityType entityType)
             {
@@ -97,9 +99,9 @@ namespace rsdl.parser
             // https://docs.oasis-open.org/odata/odata-csdl-xml/v4.01/odata-csdl-xml-v4.01.html#_Toc38530382
 
             // add functions
-            foreach (var func in definition.Functions)
+            foreach (var func in definition.Operations)
             {
-                if(!(edmType is EdmEntityType ))
+                if (!(edmType is EdmEntityType))
                 {
                     throw new InvalidOperationException($"function on complex type at {func.Position}");
                 }
@@ -111,7 +113,7 @@ namespace rsdl.parser
 
         private void AddProperty(EdmStructuredType edmType, RdmProperty prop)
         {
-            var edmTypeRef = MakeTypeReference(prop.PropType);
+            var edmTypeRef = GetTypeReference(prop.Type);
 
             // collection navigation property
             if (edmTypeRef is IEdmCollectionTypeReference collRef &&
@@ -141,35 +143,57 @@ namespace rsdl.parser
             }
         }
 
-        private void AddFunction(RdmStructuredType rdmType, RdmFunction func)
+        private void AddFunction(RdmStructuredType rdmType, RdmOperation operation)
         {
-            var isFunction = ! func.Annotations.Any(a => a is ActionAnnotation);
-            var edmTypeRef = func.ReturnType != null ? MakeTypeReference(func.ReturnType) : null;
-            // TODO: check that a function has a return type
-            var operation =  isFunction ?
-                (EdmOperation)new EdmFunction(namespaceName, func.Name, edmTypeRef, true, null, true) :
-                (EdmOperation)new EdmAction(namespaceName, func.Name, edmTypeRef, true, null);            
-            edmModel.AddElement(operation);
+            var isFunction = !operation.Annotations.Any(a => a is ActionAnnotation);
+            EdmOperation edmOperation = MakeOperation(operation, isFunction);
+            edmModel.AddElement(edmOperation);
 
-            // TODO: add binding parameter
-            var self = MakeTypeReference(new RdmTypeReference(rdmType.Name));
-            operation.AddParameter(new EdmOperationParameter(operation, "this", self));
+            // add binding parameter
+            var self = GetTypeReference(new RdmTypeReference(rdmType.Name));
+            edmOperation.AddParameter(new EdmOperationParameter(edmOperation, "this", self));
 
-            foreach (var param in func.Parameters)
+            foreach (var param in operation.Parameters)
             {
-                var paramType = MakeTypeReference(param.PropType);
-                operation.AddParameter(new EdmOperationParameter(operation, param.Name, paramType));
+                var paramType = GetTypeReference(param.Type);
+                if (param.IsOptional)
+                {
+                    edmOperation.AddOptionalParameter(param.Name, paramType);
+                }
+                else
+                {
+                    edmOperation.AddParameter(param.Name, paramType);
+                }
+            }
+        }
+
+        private EdmOperation MakeOperation(RdmOperation operation, bool isFunction)
+        {
+
+            if (isFunction)
+            {
+                if (operation.ReturnType == null)
+                {
+                    throw new TransformationException($"function \"{operation.Name}\" at {operation.Position} must have a return type");
+                }
+                var edmTypeRef = GetTypeReference(operation.ReturnType);
+                return (EdmOperation)new EdmFunction(namespaceName, operation.Name, edmTypeRef, true, null, true);
+            }
+            else
+            {
+                var edmTypeRef = operation.ReturnType != null ? GetTypeReference(operation.ReturnType) : null;
+                return new EdmAction(namespaceName, operation.Name, edmTypeRef, true, null);
             }
         }
 
         private void AddService(RdmService service)
         {
-            var containerName = "default";
-            var container = (EdmEntityContainer) edmModel.EntityContainer ?? edmModel.AddEntityContainer(namespaceName, containerName);
+            var containerName = "Service";
+            var container = (EdmEntityContainer)edmModel.EntityContainer ?? edmModel.AddEntityContainer(namespaceName, containerName);
 
             foreach (var item in service.Items)
             {
-                switch(item)
+                switch (item)
                 {
                     case RdmServiceCollection collection:
                         AddEntitySet(container, item, collection);
@@ -186,7 +210,7 @@ namespace rsdl.parser
             foreach (var tuple in
                 from type in edmModel.SchemaElements.OfType<IEdmStructuredType>()
                 from property in type.DeclaredProperties.OfType<IEdmNavigationProperty>()
-                select (type,property))
+                select (type, property))
             {
                 var (type, property) = tuple;
                 var sources = FindEntitySetOfType(container, type).ToList();
@@ -214,7 +238,7 @@ namespace rsdl.parser
         {
             return container.Elements.OfType<EdmEntitySet>().Where(eset =>
                 eset.Type is IEdmCollectionType coll && coll.ElementType.Definition == type);
-         }
+        }
 
         private EdmEntitySet AddEntitySet(EdmEntityContainer container, IRdmServiceElement item, RdmServiceCollection collection)
         {
@@ -236,7 +260,7 @@ namespace rsdl.parser
 
         #region type references
 
-        private IEdmTypeReference MakeTypeReference(RdmTypeReference typeRef)
+        private IEdmTypeReference GetTypeReference(RdmTypeReference typeRef)
         {
             // find the corresponding edm type
             IEdmType edmType = ResolveType(typeRef);
@@ -268,7 +292,7 @@ namespace rsdl.parser
 
         /// <summary>
         /// Returns the IEdmType in <see cref="edmModel"/> for the given RDM type reference.
-        /// Creates a new EdmType (via <see cref="AddStructuredType"/>) in case 
+        /// Creates a new EdmType (via <see cref="AddStructuredType"/>) in case
         /// it isn't added to <see cref="edmModel"/> yet.
         /// </summary>
         /// <param name="typeRef"></param>
@@ -307,7 +331,7 @@ namespace rsdl.parser
                 edmType = edmModel.FindType(edmTypeName);
                 return edmType;
             }
-            else if(typeRef.Name.StartsWith("Edm."))
+            else if (typeRef.Name.StartsWith("Edm."))
             {
                 edmType = edmModel.FindType(typeRef.Name);
                 return edmType;
@@ -321,17 +345,10 @@ namespace rsdl.parser
             ["string"] = "Edm.String",
             ["boolean"] = "Edm.Boolean",
             ["dateTime"] = "Edm.DateTimeOffset",
+            ["date"] = "Edm.Date",
             ["double"] = "Edm.Double"
         };
 
-        private static readonly Dictionary<string, IEdmType> _primitives = new Dictionary<string, IEdmType>
-        {
-            ["integer"] = EdmCoreModel.Instance.GetPrimitiveType(EdmPrimitiveTypeKind.Int32),
-            ["string"] = EdmCoreModel.Instance.GetPrimitiveType(EdmPrimitiveTypeKind.String),
-            ["boolean"] = EdmCoreModel.Instance.GetPrimitiveType(EdmPrimitiveTypeKind.Boolean),
-            ["dateTime"] = EdmCoreModel.Instance.GetPrimitiveType(EdmPrimitiveTypeKind.DateTimeOffset),
-            ["double"] = EdmCoreModel.Instance.GetPrimitiveType(EdmPrimitiveTypeKind.Double)
-        };
         #endregion
     }
 }

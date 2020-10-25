@@ -1,10 +1,13 @@
-name: rapid cli .NET Core
+name: rapid cli .NET Core CI build
 
 on:
   push:
-    branches: [master]
+    branches: [master, parser-tests]
   pull_request:
     branches: [master]
+env:
+  BuildConfig: Release
+  Solution: ./tools/rsdl/dotnet/rapid.sln
 
 jobs:
   build:
@@ -15,14 +18,17 @@ jobs:
 
       - name: Setup .NET Core
         uses: actions/setup-dotnet@v1
-        with:
-          dotnet-version: 3.1.301
 
-      - name: Install dependencies
+        # with:
+        #   dotnet-version: 3.1.402
+      - name: Restore
         run: dotnet restore ./tools/rsdl/dotnet/rapid/rapid.csproj
 
       - name: Build
-        run: dotnet build ./tools/rsdl/dotnet/rapid/rapid.csproj --configuration Release --no-restore
+        run: dotnet build ./tools/rsdl/dotnet/rapid/rapid.csproj --configuration ${{ env.BuildConfig }} --no-restore
+
+      - name: Test
+        run: dotnet test ${{ env.Solution }}
 
       - name: Pack
         run: dotnet pack ./tools/rsdl/dotnet/rapid/rapid.csproj --version-suffix "prerelease"
@@ -32,5 +38,3 @@ jobs:
         with:
           path: ./tools/rsdl/dotnet/rapid/nupkg
           if-no-files-found: error
-      # - name: Push to NuGet
-      #   run: dotnet nuget push ./tools/rsdl/dotnet/rapid/nupkg/*.nupkg -k ${{ secrets.NUGET_API_KEY }} -s https://nuget.org

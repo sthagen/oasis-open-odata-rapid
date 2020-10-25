@@ -1,94 +1,145 @@
-﻿using Newtonsoft.Json;
-using Superpower;
 using System;
 using System.IO;
-using Microsoft.OData.Edm.Csdl;
 using System.Diagnostics;
 using System.Collections.Generic;
-using Microsoft.Extensions.Configuration;
-using Newtonsoft.Json.Serialization;
-using System.Reflection;
-using System.Linq;
-using System.Collections;
+using Microsoft.OData.Edm.Csdl;
 using Microsoft.OData.Edm;
-using System.Threading;
+using CommandLine;
+using rapid.csdl;
 
-namespace rsdl.parser
+namespace rapid.rsdl
 {
     class Program
     {
-       
-        static void Main(string[] args)
+        public class Options
         {
-            var switchMappings = new Dictionary<string, string>()
+            [Option('v', "verbose", Required = false, HelpText = "Set output to verbose messages.")]
+            public bool Verbose { get; set; }
+
+            [Value(0, MetaName = "rsdl file", HelpText = "Input file including path")]
+            public string InputPath { get; set; }
+
+            [Option('f', "format", Required = false, HelpText = "Specify the format of the generated CSDL. One of JSON, XML or both.", Default = CsdlFormat.All)]
+            public CsdlFormat Format { get; set; }
+
+            [Option('o', "output", Required = false, HelpText = "Output direcotry. Defaults to input file's directory.")]
+            public string OutputPath { get; set; }
+        }
+
+        static int Main(string[] args)
+        {
+            var parser = new Parser(config =>
             {
-                { "--input", "input" },
-                { "--format", "format" },
-            };
-            var builder = new ConfigurationBuilder().AddCommandLine(args, switchMappings);
-            var config = builder.Build();
+                config.EnableDashDash = true;
+                config.HelpWriter = Console.Out;
+                config.CaseInsensitiveEnumValues = true;
+            });
 
-            var input = config["input"];
-            var format = string.IsNullOrWhiteSpace(config["format"]) ? CsdlFormat.All : Enum.Parse<CsdlFormat>(config["format"], true);
+            return parser
+                .ParseArguments<Options>(args)
+                .MapResult(Run, Error);
+        }
 
-            Console.WriteLine($"converting input: '{input}' to CSDL ('{format}') ");
+        private static int Error(IEnumerable<Error> errors)
+        {
+            return 1;
+        }
 
-            Convert(input, format);
+        private static int Run(Options options)
+        {
+            try
+            {
+                Convert(options.InputPath, options.Format, options.Verbose);
+            }
+            catch (ConversionException ex)
+            {
+                using (new ConsoleColorSelector(ConsoleColor.Red))
+                {
+                    Console.Error.WriteLine(ex.Message);
+                    if (ex.InnerException != null)
+                    {
+                        Console.Error.WriteLine(ex.InnerException.Message);
+                    }
+                }
+                return ex.ReturnCode;
+            }
+            return 0;
         }
 
         /// <summary>
         /// Converts a RAPID pro schema definition language file (.rsdl) to a CSDL file
         /// </summary>
         /// <param name="inputPath">file name to parse</param>
-        /// <param name="format">indicates wether it should be written as XML or JSON CSDL</param>
-        static void Convert(string inputPath, CsdlFormat format)
+        /// <param name="format">indicates whether it should be written as XML or JSON CSDL</param>
+        static void Convert(string inputPath, CsdlFormat format, bool verbose = false)
         {
-            var expression = File.ReadAllText(inputPath);
+            var content = ReadText(inputPath);
+            var model = ParseText(verbose, content);
 
-            // 1. tokenize
-            var sw = Stopwatch.StartNew();
-            var tokenizer = RdmTokenizer.Tokenizer;
-            var tokenList = tokenizer.Tokenize(expression);
-            sw.Stop();
-            Console.WriteLine("tokenization {0}", sw.Elapsed);
-            // show tokens
-            //foreach (var token in tokenList)
-            //{
-            //    Console.WriteLine(token);
-            //}
-
-            // 2. parse
-            sw.Start();
-            var parser = RdmParser.DataModel;
-            var model = parser.Parse(tokenList);
-            Console.WriteLine("parsing      {0}", sw.Elapsed);
-            //Console.WriteLine(JsonConvert.SerializeObject(model, Formatting.Indented, settings));
-
-            // 3. transform to CSDL
+            // Transform to CSDL
             try
             {
+                var sw = Stopwatch.StartNew();
                 var transformer = new ModelTransformer();
                 var csdlModel = transformer.Transform(model);
-                Console.WriteLine("transforming {0}", sw.Elapsed);
 
-                WriteCsdl(csdlModel, inputPath, format);
+                if (verbose)
+                {
+                    Console.Error.WriteLine("transforming: {0}", sw.Elapsed);
+                }
+                WriteCsdl(csdlModel, inputPath, format, verbose);
             }
             catch (TransformationException ex)
             {
-                using (new ConsoleColorSelector(ConsoleColor.Red))
-                {
-                    Console.WriteLine($"Error: {ex.Message}");
-                }
+                throw new ConversionException(2, "error transforming rsdl", ex);
+            }
+            catch (Exception ex)
+            {
+                throw new ConversionException(2, "error transforming rsdl", ex);
             }
         }
-              
 
-        private static void WriteCsdl(IEdmModel model, string inputPath, CsdlFormat format = CsdlFormat.XML)
+        private static string ReadText(string inputPath)
+        {
+            try
+            {
+                return File.ReadAllText(inputPath);
+            }
+            catch (Exception ex)
+            {
+                throw new ConversionException(1, $"can't read file {inputPath}", ex);
+            }
+        }
+
+        private static rdm.RdmDataModel ParseText(bool verbose, string content)
+        {
+            try
+            {
+                // Parse RDM model
+                var model = RdmParser.Parse(content, out var diagnostics);
+                if (verbose)
+                {
+                    Console.Error.WriteLine("tokenization: {0}", diagnostics.TokenizationTime);
+                    Console.Error.WriteLine("parsing:      {0}", diagnostics.ParsingTime);
+                }
+
+                return model;
+            }
+            catch (Exception ex)
+            {
+                throw new ConversionException(1, $"can't parse .rsdl file", ex);
+            }
+        }
+
+        private static void WriteCsdl(IEdmModel model, string inputPath, CsdlFormat format = CsdlFormat.XML, bool verbose = false)
         {
             if (format.HasFlag(CsdlFormat.XML))
             {
                 var path = Path.ChangeExtension(inputPath, ".csdl.xml");
-                Console.WriteLine("writing {0}", path);
+                if (verbose)
+                {
+                    Console.Error.WriteLine("writing {0}", path);
+                }
                 using (var file = File.CreateText(path))
                 using (var writer = System.Xml.XmlWriter.Create(file, new System.Xml.XmlWriterSettings { Indent = true }))
                 {
@@ -98,7 +149,10 @@ namespace rsdl.parser
             if (format.HasFlag(CsdlFormat.JSON))
             {
                 var path = Path.ChangeExtension(inputPath, ".csdl.json");
-                Console.WriteLine("writing {0}", path);
+                if (verbose)
+                {
+                    Console.WriteLine("writing {0}", path);
+                }
                 using (var file = File.Create(path))
                 using (var jsonWriter = new System.Text.Json.Utf8JsonWriter(file, new System.Text.Json.JsonWriterOptions { Indented = true }))
                 {

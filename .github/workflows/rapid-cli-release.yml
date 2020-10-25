@@ -1,0 +1,36 @@
+name: rapid cli .NET Core release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Setup .NET Core
+        uses: actions/setup-dotnet@v1
+        with:
+          dotnet-version: 3.1.402
+
+      - name: Restore
+        run: dotnet restore ./tools/rsdl/dotnet/rapid/rapid.csproj
+
+      - name: Build
+        run: dotnet build ./tools/rsdl/dotnet/rapid/rapid.csproj --configuration release --no-restore
+
+      - name: Pack
+        run: dotnet pack ./tools/rsdl/dotnet/rapid/rapid.csproj --configuration release /p:Version=${{ github.event.release.tag_name }} /p:PackageReleaseNotes="See https://github.com/oasis-open/odata-rapid/releases/tag/${{ github.event.release.tag_name }}"
+        working-directory: ./src
+
+      - name: Publish artifact
+        uses: actions/upload-artifact@v2
+        with:
+          path: ./tools/rsdl/dotnet/rapid/nupkg
+          if-no-files-found: error
+
+      - name: Publish Nuget Package
+        run: dotnet nuget push ./tools/rsdl/dotnet/rapid/nupkg/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://nuget.org --no-symbols true

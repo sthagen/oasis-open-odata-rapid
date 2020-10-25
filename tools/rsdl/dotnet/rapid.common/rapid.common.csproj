@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>netstandard2.1</TargetFramework>
+    <Description>Common utilities for RAPID libraries</Description>
   </PropertyGroup>
 
 </Project>
