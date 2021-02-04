@@ -1,32 +1,38 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace rapid.rdm
 {
-    public class RdmServiceSingelton : IRdmServiceElement, IEquatable<RdmServiceSingelton>
+    public class RdmServiceSingleton : RdmServiceElement, IRdmServiceElement, IEquatable<RdmServiceSingleton>
     {
-        public RdmServiceSingelton(string name, RdmTypeReference type)
+        public RdmServiceSingleton(string name, RdmTypeReference type, IEnumerable<Annotation> annotations = null, Position position = default)
+           : base(name, type, annotations, position)
         {
-            Name = name;
-            Type = type;
         }
 
-        public string Name { get; }
+        #region equality 
 
-        public RdmTypeReference Type { get; }
-
-        public bool Equals(RdmServiceSingelton other)
+        private new bool Equals(RdmServiceSingleton one, RdmServiceSingleton two)
         {
-            return string.Equals(Name, other.Name) && this.Type.Equals(other.Type);
+            return RdmServiceElement.Equals(one, two);
+        }
+
+        public bool Equals(RdmServiceSingleton other)
+        {
+            return Equals(this, other);
         }
 
         public override bool Equals(object other)
         {
-            return other is RdmServiceSingelton item && this.Equals(item);
+            return other is RdmServiceSingleton item && this.Equals(item);
         }
 
         public override int GetHashCode()
         {
-            return HashCode.Combine(Name, Type);
+            return HashCode.Combine(Name, Type, Annotations);
         }
+
+        #endregion
     }
 }

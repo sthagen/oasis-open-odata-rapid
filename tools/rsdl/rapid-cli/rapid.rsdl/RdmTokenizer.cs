@@ -24,11 +24,10 @@ namespace rapid.rsdl
 
             do
             {
-                if (next.Value == '/')
+                if (next.Value == '#')
                 {
-                    var integer = Comment.CPlusPlusStyle(next.Location);
-                    // yield return Result.Value(SchemaDefinitionToken.Comment, next.Location, integer.Remainder);
-                    next = integer.Remainder.ConsumeChar();
+                    var comment = Comment.ShellStyle(next.Location);
+                    next = comment.Remainder.ConsumeChar();
                 }
                 else if (next.Value == '\"')
                 {
@@ -80,12 +79,12 @@ namespace rapid.rsdl
             ['*'] = RdmToken.Asterisk,
             ['/'] = RdmToken.Slash,
 
-            ['('] = RdmToken.LeftParentheses,
-            [')'] = RdmToken.RightParentheses,
-            ['['] = RdmToken.LeftBracket,
-            [']'] = RdmToken.RightBracket,
-            ['{'] = RdmToken.LeftBrace,
-            ['}'] = RdmToken.RightBrace,
+            ['('] = RdmToken.OpeningParentheses,
+            [')'] = RdmToken.ClosingParentheses,
+            ['['] = RdmToken.OpeningBracket,
+            [']'] = RdmToken.ClosingBracket,
+            ['{'] = RdmToken.OpeningBrace,
+            ['}'] = RdmToken.ClosingBrace,
 
             [':'] = RdmToken.Colon,
             ['&'] = RdmToken.Ampersand,

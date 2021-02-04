@@ -1,0 +1,35 @@
+
+
+type Dog
+{
+    @Core.Description: "mens best friend"
+    @Core.Immutable: true
+    @Validation.AllowedValues: [{Value: "Rex"}, {Value: "Fifi"}]
+    key name: String
+
+
+    key foo : Edm.Int32
+
+}
+
+@Core.Description: "nonsense"
+enum Foo { foo bar baz }
+
+
+@Core.Description: "Kingdom: Animalia"
+abstract type Animal
+{
+    key name: String
+
+    @Validation.MultipleOf: 2
+    numberOfLegs: Integer
+
+    function a(): Integer
+    action b(): Integer
+    c(): Integer
+    d()
+}
+
+service {
+    dogs: [Dog]
+}

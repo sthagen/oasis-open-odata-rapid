@@ -4,37 +4,50 @@ using System.Linq;
 
 namespace rapid.rdm
 {
-    public class RdmOperation : IEquatable<RdmOperation>
+    public enum RdmOperationKind { Function, Action }
+
+    public class RdmOperation : IEquatable<RdmOperation>, IRdmServiceElement
     {
-        public RdmOperation(string name, RdmTypeReference returnType, ICollection<RdmParameter> parameters, IEnumerable<IAnnotation> annotations = null, Position position = default)
+        public RdmOperation(
+            RdmOperationKind kind,
+            string name,
+            ICollection<RdmParameter> parameters,
+            RdmParameter returnType,
+            IEnumerable<Annotation> annotations = null,
+            Position position = default)
         {
+            Kind = kind;
             Name = name;
-            ReturnType = returnType;
             Parameters = parameters;
-            Annotations = annotations ?? Enumerable.Empty<IAnnotation>();
+            ReturnType = returnType;
+            Annotations = annotations.ToReadOnlyList();
             Position = position;
         }
 
-        public RdmOperation()
-        {
-        }
-
-        public string Name { get; set; }
-        public RdmTypeReference ReturnType { get; set; }
-        public ICollection<RdmParameter> Parameters { get; set; }
-        public IEnumerable<IAnnotation> Annotations { get; set; }
+        public string Name { get; }
+        public RdmParameter ReturnType { get; }
+        public ICollection<RdmParameter> Parameters { get; }
+        public RdmOperationKind Kind { get; }
+        public IReadOnlyList<Annotation> Annotations { get; }
         public Position Position { get; set; }
 
-        public bool ShouldSerializeAnnotations() => Annotations.Count() > 0;
+        #region equality
+
+        public static bool Equals(RdmOperation one, RdmOperation two)
+        {
+            if (object.ReferenceEquals(one, two)) return true;
+            if (one == null || two == null) return one == null && two == null;
+            return
+                string.Equals(one.Name, two.Name) &&
+                one.Kind.Equals(two.Kind) &&
+                one.ReturnType.Equals(two.ReturnType) &&
+                Enumerable.SequenceEqual(one.Parameters, two.Parameters) &&
+                Enumerable.SequenceEqual(one.Annotations, two.Annotations);
+        }
 
         public bool Equals(RdmOperation other)
         {
-            // Position is intentionally not compared.
-            return
-                string.Equals(this.Name, other.Name) &&
-                this.ReturnType.Equals(other.ReturnType) &&
-                this.Parameters.Equals(other.Parameters) &&
-                Enumerable.SequenceEqual(this.Annotations, other.Annotations);
+            return Equals(this, other);
         }
 
         public override bool Equals(object other)
@@ -44,7 +57,9 @@ namespace rapid.rdm
 
         public override int GetHashCode()
         {
-            return HashCode.Combine(Name, ReturnType, Parameters, Annotations);
+            return HashCode.Combine(Name, ReturnType, Kind, Parameters, Annotations);
         }
+
+        #endregion
     }
 }

@@ -9,7 +9,7 @@ namespace rapid.rdm
     {
 
         private readonly TypeEnvironment env;
-
+        private readonly AnnotationBuilder annotationBuilder;
         private readonly ILogger logger;
 
         private EdmModel edmModel;
@@ -19,6 +19,7 @@ namespace rapid.rdm
         {
             this.logger = logger;
             this.env = env;
+            this.annotationBuilder = new AnnotationBuilder(logger);
         }
 
         /// <summary>
@@ -35,17 +36,20 @@ namespace rapid.rdm
 
                 edmModel.SetEdmReferences(CreateReferences());
 
-                // create: add each of the schema elements and register them in the environment
-                foreach (var item in rdmModel.Items)
+                // add each of the schema elements and register them in the environment
+                // order the elements so that base classes are created before subclasses
+
+                foreach (var item in TopologicalOrder.Sort(rdmModel.Items))
                 {
                     var edmElement = CreateSchemaElement(item);
                     if (edmElement is IEdmType edmType)
                     {
+                        logger.LogInfo("adding type '{0}' to environment", item.Name);
                         env.Register(item.Name, edmType);
                     }
                 }
 
-                // add the members, properties, ... or the schema elements
+                // add the members, properties, etc to the schema elements
                 foreach (var item in rdmModel.Items)
                 {
                     var edmElement = BuildSchemaElement(item);
@@ -109,6 +113,11 @@ namespace rapid.rdm
             var edmType = new EdmEnumType(rdmModel.Namespace.NamespaceName, definition.Name, definition.IsFlags);
             edmModel.AddElement(edmType);
 
+            foreach (var annotation in definition.Annotations)
+            {
+                annotationBuilder.AddAnnotation(edmModel, edmType, annotation);
+            }
+
             return edmType;
         }
 
@@ -121,18 +130,50 @@ namespace rapid.rdm
             {
                 var elem = definition.Members[i];
                 var value = flags ? (1 << i) : i;
-                edmType.AddMember(new EdmEnumMember(edmType, elem, new EdmEnumMemberValue(value)));
+                var member = new EdmEnumMember(edmType, elem.Name, new EdmEnumMemberValue(value));
+
+                edmType.AddMember(member);
+                foreach (var annotation in elem.Annotations)
+                {
+                    annotationBuilder.AddAnnotation(edmModel, member, annotation);
+                }
             }
             return edmType;
         }
 
         private EdmStructuredType AddStructuredType(RdmStructuredType definition)
         {
-            var isEntityType = definition.Keys.Any() || HasSingletonOfType(definition);
-            var edmType = isEntityType ?
-               (EdmStructuredType)edmModel.AddEntityType(rdmModel.Namespace.NamespaceName, definition.Name) :
-               (EdmStructuredType)edmModel.AddComplexType(rdmModel.Namespace.NamespaceName, definition.Name);
-            return edmType;
+
+            // base type, the Build method ensure that the base type was added before the 
+            // sub-type and therefore FindType will succeed.
+            IEdmStructuredType edmBaseType = null;
+            if (definition.BaseType != null)
+            {
+                edmBaseType = edmModel.FindType(rdmModel.Namespace.NamespaceName + "." + definition.BaseType) as EdmStructuredType;
+                if (edmBaseType == null)
+                {
+                    throw new TransformationException($"unable to find base type {definition.BaseType} for type {definition.Name}");
+                }
+            }
+
+            if (definition.Keys.Any() || HasSingletonOfType(definition) || (edmBaseType != null && edmBaseType.TypeKind == EdmTypeKind.Entity))
+            {
+                var entity = edmModel.AddEntityType(rdmModel.Namespace.NamespaceName, definition.Name, (IEdmEntityType)edmBaseType, definition.IsAbstract, true);
+                foreach (var annotation in definition.Annotations)
+                {
+                    annotationBuilder.AddAnnotation(edmModel, entity, annotation);
+                }
+                return entity;
+            }
+            else
+            {
+                var complex = edmModel.AddComplexType(rdmModel.Namespace.NamespaceName, definition.Name, (IEdmComplexType)edmBaseType, definition.IsAbstract, true);
+                foreach (var annotation in definition.Annotations)
+                {
+                    annotationBuilder.AddAnnotation(edmModel, complex, annotation);
+                }
+                return complex;
+            }
         }
 
         private EdmStructuredType BuildStructuredType(RdmStructuredType definition)
@@ -154,96 +195,105 @@ namespace rapid.rdm
 
             // https://docs.oasis-open.org/odata/odata-csdl-xml/v4.01/odata-csdl-xml-v4.01.html#_Toc38530382
             // add functions
-            foreach (var func in definition.Operations)
+            foreach (var operation in definition.Operations)
             {
                 if (!(edmType is EdmEntityType))
                 {
-                    throw new InvalidOperationException($"function on complex type at {func.Position}");
+                    throw new InvalidOperationException($"function on complex type at {operation.Position}");
                 }
-                AddFunction(definition, func);
+                AddOperation(operation, definition);
             }
 
             return edmType;
         }
 
-        private void AddProperty(EdmStructuredType edmType, RdmProperty prop)
+        private void AddProperty(EdmStructuredType edmType, RdmProperty rdmProp)
         {
-            var edmTypeRef = env.ResolveTypeReference(prop.Type);
-
+            var edmTypeRef = env.ResolveTypeReference(rdmProp.Type);
+            EdmProperty edmProp;
             // collection navigation property
             if (edmTypeRef is IEdmCollectionTypeReference collRef &&
                 collRef.Definition is IEdmCollectionType collType &&
                 collType.ElementType is IEdmEntityTypeReference elTypeRef &&
                 elTypeRef.Definition is IEdmEntityType elType)
             {
-                var edmProp = new EdmNavigationPropertyInfo { Name = prop.Name, Target = elType, TargetMultiplicity = EdmMultiplicity.Many };
-                edmType.AddUnidirectionalNavigation(edmProp);
+                var info = new EdmNavigationPropertyInfo { Name = rdmProp.Name, Target = elType, TargetMultiplicity = EdmMultiplicity.Many };
+                edmProp = edmType.AddUnidirectionalNavigation(info);
             }
             // single value navigation property
             else if (edmTypeRef is IEdmEntityTypeReference entityRef &&
                 entityRef.Definition is IEdmEntityType svelType)
             {
                 var multiplicity = edmTypeRef.IsNullable ? EdmMultiplicity.ZeroOrOne : EdmMultiplicity.One;
-                var edmProp = new EdmNavigationPropertyInfo { Name = prop.Name, Target = svelType, TargetMultiplicity = multiplicity };
-                edmType.AddUnidirectionalNavigation(edmProp);
+                var info = new EdmNavigationPropertyInfo { Name = rdmProp.Name, Target = svelType, TargetMultiplicity = multiplicity };
+                edmProp = edmType.AddUnidirectionalNavigation(info);
             }
-            // single value or collection  property
+            // structural property, single or multi value
             else if (edmTypeRef is IEdmTypeReference typeRef)
             {
-                edmType.AddStructuralProperty(prop.Name, typeRef);
+                edmProp = edmType.AddStructuralProperty(rdmProp.Name, typeRef);
             }
             else
             {
                 throw new NotSupportedException("unsupported implementation of IEdmTypeReference returned from GetTypeReference");
             }
+
+            foreach (var annotation in rdmProp.Annotations.OfType<Annotation>())
+            {
+                annotationBuilder.AddAnnotation(edmModel, edmProp, annotation);
+            }
         }
 
-        private void AddFunction(RdmStructuredType rdmType, RdmOperation operation)
+        private IEdmOperation AddOperation(RdmOperation operation, RdmStructuredType rdmType)
         {
-            var isFunction = !operation.Annotations.Any(a => a is ActionAnnotation);
-            EdmOperation edmOperation = MakeOperation(operation, isFunction);
+            var edmOperation = MakeOperation(operation, rdmType);
             edmModel.AddElement(edmOperation);
 
-            // add binding parameter
-            var self = env.ResolveTypeReference(new RdmTypeReference(rdmType.Name));
-            edmOperation.AddParameter(new EdmOperationParameter(edmOperation, "this", self));
+            if (rdmType != null)
+            {
+                // add binding parameter
+                var self = env.ResolveTypeReference(new RdmTypeReference(rdmType.Name));
+                edmOperation.AddParameter(new EdmOperationParameter(edmOperation, "this", self));
+            }
 
             foreach (var param in operation.Parameters)
             {
                 var paramType = env.ResolveTypeReference(param.Type);
-                if (param.IsOptional)
-                {
-                    edmOperation.AddOptionalParameter(param.Name, paramType);
-                }
-                else
-                {
+                EdmOperationParameter edmParameter = param.IsOptional ?
+                    edmOperation.AddOptionalParameter(param.Name, paramType) :
                     edmOperation.AddParameter(param.Name, paramType);
-                }
+
+                annotationBuilder.AddAnnotations(edmModel, edmParameter, param.Annotations);
             }
+            return edmOperation;
         }
 
-        private EdmOperation MakeOperation(RdmOperation operation, bool isFunction)
+        private EdmOperation MakeOperation(RdmOperation operation, RdmStructuredType rdmType)
         {
-
-            if (isFunction)
+            EdmOperation edmOperation;
+            if (operation.Kind == RdmOperationKind.Function)
             {
                 if (operation.ReturnType == null)
                 {
                     throw new TransformationException($"function \"{operation.Name}\" at {operation.Position} must have a return type");
                 }
-                var edmTypeRef = env.ResolveTypeReference(operation.ReturnType);
-                return (EdmOperation)new EdmFunction(rdmModel.Namespace.NamespaceName, operation.Name, edmTypeRef, true, null, true);
+                var edmTypeRef = env.ResolveTypeReference(operation.ReturnType.Type);
+                edmOperation = new EdmFunction(rdmModel.Namespace.NamespaceName, operation.Name, edmTypeRef, rdmType != null, null, true);
+                annotationBuilder.AddAnnotations(edmModel, edmOperation.GetReturn(), operation.ReturnType.Annotations);
             }
             else
             {
-                var edmTypeRef = operation.ReturnType != null ? env.ResolveTypeReference(operation.ReturnType) : null;
-                return new EdmAction(rdmModel.Namespace.NamespaceName, operation.Name, edmTypeRef, true, null);
+                var edmTypeRef = operation.ReturnType != null ? env.ResolveTypeReference(operation.ReturnType.Type) : null;
+                edmOperation = new EdmAction(rdmModel.Namespace.NamespaceName, operation.Name, edmTypeRef, rdmType != null, null);
             }
+            annotationBuilder.AddAnnotations(edmModel, edmOperation, operation.Annotations);
+            return edmOperation;
         }
 
         private EdmEntityContainer AddService(RdmService service)
         {
             var container = edmModel.AddEntityContainer(rdmModel.Namespace.NamespaceName, service.Name);
+            annotationBuilder.AddAnnotations(edmModel, container, service.Annotations);
             return container;
         }
 
@@ -256,10 +306,13 @@ namespace rapid.rdm
                 switch (item)
                 {
                     case RdmServiceCollection collection:
-                        AddEntitySet(container, item, collection);
+                        AddEntitySet(container, collection);
                         break;
-                    case RdmServiceSingelton singleton:
-                        AddSingelton(container, item, singleton);
+                    case RdmServiceSingleton singleton:
+                        AddSingleton(container, singleton);
+                        break;
+                    case RdmOperation operation:
+                        AddServiceOperation(container, operation);
                         break;
                     default:
                         throw new NotSupportedException("unknown implementation of IRdmServiceElement");
@@ -299,7 +352,7 @@ namespace rapid.rdm
         private bool HasSingletonOfType(RdmStructuredType definition)
         {
             var singletons = from service in rdmModel.Items.OfType<RdmService>()
-                             from item in service.Items.OfType<RdmServiceSingelton>()
+                             from item in service.Items.OfType<RdmServiceSingleton>()
                              select item;
             var matches = singletons.Where(singleton => singleton.Type.Name == definition.Name);
             return matches.Any();
@@ -311,7 +364,7 @@ namespace rapid.rdm
                 entitySet.Type is IEdmCollectionType coll && coll.ElementType.Definition == type);
         }
 
-        private EdmEntitySet AddEntitySet(EdmEntityContainer container, IRdmServiceElement item, RdmServiceCollection collection)
+        private EdmEntitySet AddEntitySet(EdmEntityContainer container, RdmServiceCollection collection)
         {
             var @ref = env.ResolveTypeReference(collection.Type);
             // TODO: ensure resolved type is actually an entity
@@ -321,7 +374,8 @@ namespace rapid.rdm
                 var type = entityTypeReference.Definition;
                 if (type is IEdmEntityType entityType)
                 {
-                    var entitySet = container.AddEntitySet(item.Name, entityType);
+                    var entitySet = container.AddEntitySet(collection.Name, entityType);
+                    annotationBuilder.AddAnnotations(edmModel, entitySet, collection.Annotations);
                     return entitySet;
                 }
             }
@@ -329,18 +383,38 @@ namespace rapid.rdm
             throw new Exception("");
         }
 
-        private EdmSingleton AddSingelton(EdmEntityContainer container, IRdmServiceElement item, RdmServiceSingelton singleton)
+        private EdmSingleton AddSingleton(EdmEntityContainer container, RdmServiceSingleton singleton)
         {
             var type = env.ResolveTypeReference(singleton.Type);
 
             switch (type.Definition)
             {
                 case IEdmEntityType entityType:
-                    var singelton = container.AddSingleton(item.Name, entityType);
-                    return singelton;
+                    var edmSingleton = container.AddSingleton(singleton.Name, entityType);
+                    annotationBuilder.AddAnnotations(edmModel, edmSingleton, singleton.Annotations);
+                    return edmSingleton;
 
                 default:
-                    throw new TransformationException($"Invalid type '{type}' for single valued service property {item.Name}.");
+                    throw new TransformationException($"Invalid type '{type}' for single valued service property {singleton.Name}.");
+            }
+        }
+
+        private void AddServiceOperation(EdmEntityContainer container, RdmOperation operation)
+        {
+            var edmOperation = AddOperation(operation, null);
+
+            if (edmOperation is IEdmFunction edmFunction)
+            {
+                container.AddFunctionImport(edmFunction);
+            }
+            else if (edmOperation is IEdmAction edmAction)
+            {
+                container.AddActionImport(edmAction);
+            }
+            else
+            {
+                throw new NotSupportedException();
+                throw new NotSupportedException("unknown implementation of IEdmOperation");
             }
         }
     }

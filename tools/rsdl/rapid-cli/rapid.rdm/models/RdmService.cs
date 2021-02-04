@@ -10,28 +10,38 @@ namespace rapid.rdm
     public interface IRdmServiceElement
     {
         string Name { get; }
+        IReadOnlyList<Annotation> Annotations { get; }
     }
 
     public class RdmService : IRdmSchemaElement, IEquatable<RdmService>
     {
-        //     public RdmService()
-        //     {
-        //         Name = "Service";
-        //     }
-
-        public RdmService(IEnumerable<IRdmServiceElement> items)
+        public RdmService(string name, IEnumerable<IRdmServiceElement> items, IEnumerable<Annotation> annotations = null, Position position = default)
         {
-            Name = "Service";
+            Name = name ?? "Service";
             Items = items;
+            Annotations = annotations?.ToList().AsReadOnly() ?? (IReadOnlyList<Annotation>)Array.Empty<Annotation>();
         }
 
         public string Name { get; }
 
         public IEnumerable<IRdmServiceElement> Items { get; }
+        public IReadOnlyList<Annotation> Annotations { get; }
+
+        #region equality 
+
+        public static bool Equals(RdmService one, RdmService two)
+        {
+            if (object.ReferenceEquals(one, two)) return true;
+            if (one == null || two == null) return one == null && two == null;
+            return
+                string.Equals(one.Name, two.Name) &&
+                Enumerable.SequenceEqual(one.Items, two.Items) &&
+                Enumerable.SequenceEqual(one.Annotations, two.Annotations);
+        }
 
         public bool Equals(RdmService other)
         {
-            return Enumerable.SequenceEqual(this.Items, other.Items);
+            return Equals(this, other);
         }
 
         public override bool Equals(object other)
@@ -41,7 +51,9 @@ namespace rapid.rdm
 
         public override int GetHashCode()
         {
-            return HashCode.Combine(Items);
+            return HashCode.Combine(Name, Items, Annotations);
         }
+
+        #endregion
     }
 }

@@ -4,7 +4,7 @@ enum EmploymentType { salaried hourly }
 
 type Company
 {
-    @key stockSymbol: String
+    key stockSymbol: String
     name: String
     incorporated: Date
     employees: [Employee]
@@ -14,31 +14,31 @@ type Company
     test2: Double
     test3: Double?
     test4: [Edm.Double?]
-    // test5: [Edm.Double]?  // invalid, the question mark must be on the element type.
+    # test5: [Edm.Double]?  # invalid, the question mark must be on the element type.
 }
 
 type Employee
 {
-    @key id: Integer
-    key: Boolean
+    key id: Integer
+
     name : Name
     title: String
     employmentType: EmploymentType
 
-    // a RSDL function that will be translate to a CSDL function
-    promote() : Integer
+    # a RSDL function that will be translate to a CSDL action
+    action promote() : Integer
 
-    // a RSDL function with parameters
-    promote(levels: Integer, note: String) : Integer
+    # a RSDL function with parameters
+    action promote(levels: Integer, note: String) : Integer
 
-    // a RSDL function with an optional parameter
-    addNote(text: String, severity?: Integer) : Integer
+    # a RSDL function with an optional parameter
+    action addNote(text: String, severity?: Integer) : Integer
 
-    // a RSDL function that will be translate to a CSDL action with a required parameter that can be null
-    @action fire(date: DateTime?)
+    # a RSDL function that will be translate to a CSDL action with a required parameter that can be null
+    action fire(date: DateTime?)
 
-    // a RSDL function that will be translate to a CSDL action with an optional parameter
-    @action fire(date?: DateTime)
+    # a RSDL function that will be translate to a CSDL action with an optional parameter
+    action fire(date?: DateTime)
 }
 
 type Name
@@ -51,13 +51,13 @@ type Name
 
 service
 {
-    // unbound, "global" function
-    // resetDataSource
+    # unbound, "global" function
+    # resetDataSource
 
-    // entitySet http://host/competitors
+    # entitySet http:#host/competitors
     competitors: [Company]
 
-    // singleton http://host/company
+    # singleton http:#host/company
     company: Company
 
     employees: [Employee]
