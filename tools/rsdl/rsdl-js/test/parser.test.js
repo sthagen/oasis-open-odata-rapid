@@ -48,7 +48,7 @@ describe("Parse correct RSDL", () => {
     );
   });
 
-  it("All property types, two keys", () => {
+  it("All primitive types, two keys", () => {
     assert.deepStrictEqual(
       parse(`type foo { 
                bar: [String] 
@@ -58,6 +58,8 @@ describe("Parse correct RSDL", () => {
                dbl: Double
                dec: Decimal
                tsp: Datetime
+               tim: TimeOfDay
+               dur: Duration
                geo: Edm.GeographyPoint
              }`),
       {
@@ -74,6 +76,8 @@ describe("Parse correct RSDL", () => {
             dbl: { $Type: "Edm.Double" },
             dec: { $Type: "Edm.Decimal" },
             tsp: { $Type: "Edm.DateTimeOffset" },
+            tim: { $Type: "Edm.TimeOfDay" },
+            dur: { $Type: "Edm.Duration" },
             geo: { $Type: "Edm.GeographyPoint" },
           },
         },
@@ -335,6 +339,7 @@ describe("Reference test cases", () => {
     { d: "inheritance" },
     { d: "named-service", n: "service" },
     { d: "operations" },
+    { d: "parameter-annotations", n: "model" },
     { d: "path-expressions" },
   ];
   files.forEach((f) => {
