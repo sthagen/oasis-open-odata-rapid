@@ -8,7 +8,11 @@ qualifiedName: ID ('.' ID)*;
 
 include: 'include' STRING 'as' ID;
 
-modelElement: structuredType | enumType | service;
+modelElement:
+	structuredType
+	| enumType
+	| typeDefinition
+	| service;
 
 structuredType:
 	annotation* ABSTRACT? 'type' ID baseType? '{' typeMember* '}';
@@ -27,12 +31,12 @@ typeName: builtInType | qualifiedName;
 builtInType:
 	'Boolean'
 	| 'Date'
-	| 'Datetime'
-	| 'Decimal'
+	| 'DateTime'
+	| 'Decimal' ('(' NUMBER ',' NUMBER ')')?
 	| 'Double'
 	| 'Duration'
 	| 'Integer'
-	| 'String'
+	| 'String' ('(' NUMBER ')')?
 	| 'TimeOfDay';
 
 operation:
@@ -42,12 +46,12 @@ operation:
 parameter: annotation* ID ':' typeReference;
 returnType: ':' annotation* typeReference;
 
-//TODO: flags
 enumType: annotation* enumKind ID '{' enumMember* '}';
 enumKind: 'enum' | 'flags';
 enumMember: annotation* ID;
 
-//TODO: do we really want to allow service names?
+typeDefinition: annotation* 'typedef' ID ':' typeName;
+
 service: annotation* 'service' ID? '{' serviceMember* '}';
 serviceMember: entitySet | singleton | serviceOperation;
 entitySet: annotation* ID ':' '[' qualifiedName ']';

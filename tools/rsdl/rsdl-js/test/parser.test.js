@@ -57,7 +57,10 @@ describe("Parse correct RSDL", () => {
                key dat: Date
                dbl: Double
                dec: Decimal
-               tsp: Datetime
+               d42: Decimal(4,2)
+               s42: String(42) 
+               s4a: [String(4)?]
+               tsp: DateTime
                tim: TimeOfDay
                dur: Duration
                geo: Edm.GeographyPoint
@@ -75,7 +78,10 @@ describe("Parse correct RSDL", () => {
             dat: { $Type: "Edm.Date" },
             dbl: { $Type: "Edm.Double" },
             dec: { $Type: "Edm.Decimal" },
-            tsp: { $Type: "Edm.DateTimeOffset" },
+            d42: { $Type: "Edm.Decimal", $Precision: 4, $Scale: 2 },
+            s42: { $MaxLength: 42 },
+            s4a: { $Collection: true, $MaxLength: 4, $Nullable: true },
+            tsp: { $Type: "Edm.DateTimeOffset", $Precision: 0 },
             tim: { $Type: "Edm.TimeOfDay" },
             dur: { $Type: "Edm.Duration" },
             geo: { $Type: "Edm.GeographyPoint" },
@@ -312,6 +318,68 @@ describe("Parse correct RSDL", () => {
     );
   });
 
+  it("Annotation values", () => {
+    assert.deepStrictEqual(
+      parse(`type foo { 
+               @Validation.Maximum: 1e3
+               @Validation.Minimum: 1e-2
+               bar: Double
+             }
+             `),
+      {
+        $Version: "4.0",
+        Model: {
+          foo: {
+            $Kind: "ComplexType",
+            $OpenType: true,
+            bar: {
+              $Type: "Edm.Double",
+              "@Org.OData.Validation.V1.Maximum": 1000,
+              "@Org.OData.Validation.V1.Minimum": 0.01,
+            },
+          },
+        },
+      }
+    );
+  });
+
+  it("Type definitions", () => {
+    assert.deepStrictEqual(
+      parse(
+        `@Core.Description: "Monetary Amount"
+         typedef Amount: Decimal(23,5)
+
+         @Core.Description: "ISO or custom currency"
+         typedef Currency: String(5)
+         
+         type Money { amount: Amount currency: Currency }`
+      ),
+      {
+        $Version: "4.0",
+        Model: {
+          Amount: {
+            "@Org.OData.Core.V1.Description": "Monetary Amount",
+            $Kind: "TypeDefinition",
+            $Type: "Edm.Decimal",
+            $Precision: 23,
+            $Scale: 5,
+          },
+          Currency: {
+            "@Org.OData.Core.V1.Description": "ISO or custom currency",
+            $Kind: "TypeDefinition",
+            $MaxLength: 5,
+          },
+          Money: {
+            $Kind: "ComplexType",
+            $OpenType: true,
+            amount: { $Type: "Model.Amount" },
+            currency: { $Type: "Model.Currency" },
+          },
+        },
+      }
+    );
+  });
+
   it("Comments", () => {
     assert.deepStrictEqual(
       parse(`type foo { 
@@ -336,11 +404,13 @@ describe("Reference test cases", () => {
     { d: "abstract" },
     { d: "annotations" },
     { d: "annotations2", n: "model" },
+    { d: "annotations-path", n: "model" },
     { d: "inheritance" },
     { d: "named-service", n: "service" },
     { d: "operations" },
     { d: "parameter-annotations", n: "model" },
     { d: "path-expressions" },
+    { d: "type-facets" },
   ];
   files.forEach((f) => {
     it(f.d, function () {

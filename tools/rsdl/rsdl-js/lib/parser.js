@@ -2,12 +2,11 @@ const antlr4 = require("antlr4");
 const rsdlLexer = require("../grammar/parser/rsdlLexer").rsdlLexer;
 const rsdlParser = require("../grammar/parser/rsdlParser").rsdlParser;
 const rsdlListener = require("../grammar/parser/rsdlListener").rsdlListener;
-const path = require("path");
 
 const TYPENAMES = {
   Boolean: "Edm.Boolean",
   Date: "Edm.Date",
-  Datetime: "Edm.DateTimeOffset",
+  DateTime: "Edm.DateTimeOffset",
   Decimal: "Edm.Decimal",
   Duration: "Edm.Duration",
   Double: "Edm.Double",
@@ -61,13 +60,13 @@ class MyListener extends rsdlListener {
   }
 
   //TODO: construct annotation value
-  enterAnnotation(ctx) {
+  enterAnnotation(/*ctx*/) {
     this.annotation.unshift({});
   }
 
   exitAnnotation(ctx) {
     if (this.annotatable.length === 0) {
-      console.log("Panic: no annotatable!!!");
+      console.error("Panic: no annotatable!!!");
     }
 
     const term = this.normalizeTermName(ctx.qualifiedName().getText());
@@ -81,6 +80,7 @@ class MyListener extends rsdlListener {
   normalizeTermName(name) {
     //TODO: clean up
     return name
+      .replace(/^Capabilities./, "Org.OData.Capabilities.V1.")
       .replace(/^Core./, "Org.OData.Core.V1.")
       .replace(/^Validation./, "Org.OData.Validation.V1.");
   }
@@ -90,25 +90,25 @@ class MyListener extends rsdlListener {
     this.annotation[0].value = { $Path: ctx.getText().substring(2) };
   }
 
-  enterArr(ctx) {
+  enterArr(/*ctx*/) {
     this.annotation[0].value = [];
   }
 
-  enterItem(ctx) {
+  enterItem(/*ctx*/) {
     this.annotation.unshift({});
   }
 
-  exitItem(ctx) {
+  exitItem(/*ctx*/) {
     const value = this.annotation[0].value;
     this.annotation.shift();
     this.annotation[0].value.push(value);
   }
 
-  enterObj(ctx) {
+  enterObj(/*ctx*/) {
     this.annotation[0].value = {};
   }
 
-  enterPair(ctx) {
+  enterPair(/*ctx*/) {
     this.annotation.unshift({});
   }
 
@@ -144,7 +144,7 @@ class MyListener extends rsdlListener {
     this.pushAnnotatable(this.current.type);
   }
 
-  exitStructuredType(ctx) {
+  exitStructuredType(/*ctx*/) {
     delete this.current.type.$$Name;
     this.current.type = null;
     this.popAnnotatable();
@@ -167,17 +167,32 @@ class MyListener extends rsdlListener {
     this.pushAnnotatable(this.current.typedElement);
   }
 
-  exitProperty(ctx) {
+  exitProperty(/*ctx*/) {
     this.current.typedElement = null;
     this.popAnnotatable();
   }
 
   enterTypeName(ctx) {
     if (!this.current.typedElement) return;
-    let name = ctx.getText();
+    const typeParts = ctx.getText().split(/[(,)]/);
+    let name = typeParts[0]; //ctx.getText();
     name = TYPENAMES[name] || name;
     if (!name.includes(".")) name = `${this.namespace}.${name}`;
-    if (name !== "Edm.String") this.current.typedElement.$Type = name;
+    if (name === "Edm.String") {
+      if (typeParts.length > 1) {
+        this.current.typedElement.$MaxLength = parseInt(typeParts[1], 10);
+      }
+    } else {
+      this.current.typedElement.$Type = name;
+      if (name === "Edm.Decimal" && typeParts.length > 2) {
+        this.current.typedElement.$Precision = parseInt(typeParts[1], 10);
+        this.current.typedElement.$Scale = parseInt(typeParts[2], 10);
+      }
+      //TODO: allow facet for DateTime
+      if (name === "Edm.DateTimeOffset") {
+        this.current.typedElement.$Precision = 0;
+      }
+    }
   }
 
   enterSingle(ctx) {
@@ -209,7 +224,7 @@ class MyListener extends rsdlListener {
     this.pushAnnotatable(this.current.overload);
   }
 
-  exitOperation(ctx) {
+  exitOperation(/*ctx*/) {
     this.current.typedElement = null;
     this.popAnnotatable();
   }
@@ -223,18 +238,18 @@ class MyListener extends rsdlListener {
     this.pushAnnotatable(this.current.typedElement);
   }
 
-  exitParameter(ctx) {
+  exitParameter(/*ctx*/) {
     this.current.typedElement = null;
     this.popAnnotatable();
   }
 
-  enterReturnType(ctx) {
+  enterReturnType(/*ctx*/) {
     this.current.typedElement = {};
     this.current.overload.$ReturnType = this.current.typedElement;
     this.pushAnnotatable(this.current.typedElement);
   }
 
-  exitReturnType(ctx) {
+  exitReturnType(/*ctx*/) {
     this.current.typedElement = null;
     this.popAnnotatable();
   }
@@ -252,7 +267,7 @@ class MyListener extends rsdlListener {
     this.pushAnnotatable(this.current.type);
   }
 
-  exitEnumType(ctx) {
+  exitEnumType(/*ctx*/) {
     delete this.current.type.$$nextMemberNumber;
     delete this.current.type.$$enumKind;
     this.current.type = null;
@@ -270,7 +285,26 @@ class MyListener extends rsdlListener {
     this.pushAnnotatable(this.current.type, name);
   }
 
-  exitEnumMember(ctx) {
+  exitEnumMember(/*ctx*/) {
+    this.popAnnotatable();
+  }
+
+  enterTypeDefinition(ctx) {
+    const name = ctx.ID().getText();
+    this.current.type = {
+      $Kind: "TypeDefinition",
+      $$Name: name,
+    };
+    this.schema[name] = this.current.type;
+    this.pushAnnotatable(this.current.type);
+    this.current.typedElement = this.current.type;
+  }
+
+  exitTypeDefinition(/*ctx*/) {
+    //TODO: check whether $Type is undefined or starts with 'Edm.'
+    delete this.current.type.$$Name;
+    this.current.type = null;
+    this.current.typedElement = null;
     this.popAnnotatable();
   }
 
@@ -281,7 +315,7 @@ class MyListener extends rsdlListener {
     this.pushAnnotatable(this.entityContainer);
   }
 
-  exitService(ctx) {
+  exitService(/*ctx*/) {
     this.popAnnotatable();
   }
 
@@ -294,7 +328,7 @@ class MyListener extends rsdlListener {
     this.pushAnnotatable(set);
   }
 
-  exitEntitySet(ctx) {
+  exitEntitySet(/*ctx*/) {
     this.popAnnotatable();
   }
 
@@ -307,7 +341,7 @@ class MyListener extends rsdlListener {
     this.pushAnnotatable(singleton);
   }
 
-  exitSingleton(ctx) {
+  exitSingleton(/*ctx*/) {
     this.popAnnotatable();
   }
 
@@ -326,21 +360,21 @@ class MyListener extends rsdlListener {
     this.pushAnnotatable(this.current.overload);
   }
 
-  exitServiceOperation(ctx) {
+  exitServiceOperation(/*ctx*/) {
     this.popAnnotatable();
   }
 
-  exitModel(ctx) {
+  exitModel(/*ctx*/) {
     this.csdl[this.namespace] = this.schema;
 
     // types referenced in entity sets or singletons are entity types
     for (const [name, child] of Object.entries(this.entityContainer || {})) {
       if (!this.isIdentifier(name) || !child.$Type) continue;
       const type = this.modelElement(child.$Type);
-      if (!["ComplexType", "EntityType"].includes(type.$Kind)) {
-        //TODO: Error if entity set or singleton does not reference a structured type
-        continue;
-      }
+      //TODO: Error if entity set or singleton does not reference a structured type
+      // if (!["ComplexType", "EntityType"].includes(type.$Kind)) {
+      //   ...
+      // }
       type.$Kind = "EntityType";
       //TODO: entity types used in entity sets must have a key
     }
@@ -390,7 +424,7 @@ class ErrorListener extends antlr4.error.ErrorListener {
     this.errors = [];
   }
 
-  syntaxError(recognizer, symbol, line, column, message, payload) {
+  syntaxError(_recognizer, _symbol, line, column, message /*payload*/) {
     //TODO: include filename, also from included files, via includeReader (rename to fileReader?)
     this.errors.push({ message, target: `${line}:${column + 1}` });
   }

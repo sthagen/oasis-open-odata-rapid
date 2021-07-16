@@ -1,6 +1,4 @@
 using System;
-using System.Collections;
-using System.Linq;
 using rapid.rdm;
 using Xunit;
 
@@ -9,6 +7,21 @@ namespace rapid.rsdl.tests
     public class ParserTests
     {
         private readonly RdmParser parser = new RdmParser();
+
+
+        [Fact]
+        public void SinglePropertyGetsParsed()
+        {
+            var content = @"type Thing { id: String } ";
+            var actual = parser.Parse(content, "test");
+
+            var expected = new RdmDataModel(null, new IRdmSchemaElement[] {
+                new RdmStructuredType("Thing", null, new [] {
+                     new RdmProperty("id", new RdmTypeReference("String"), false)
+                })
+            });
+            Assert.Equal(expected, actual);
+        }
 
         [Fact]
         public void TypePropertiesGetParsed()
@@ -40,7 +53,6 @@ namespace rapid.rsdl.tests
                 })
             });
 
-            // Assert.Null(Assert2.ObjectDifference(expected, actual));
             Assert.Equal(expected, actual);
         }
 
@@ -171,12 +183,11 @@ type Company { something: other.Something }";
                 new[] {
                     new RdmEnumType("Colors", new [] {
                         new RdmEnumMember("red", new [] { new Annotation("Core.Description", AnnotationExpression.String("ruby")) }),
-                     new RdmEnumMember("green"),
-                     new RdmEnumMember("blue")}, false)
+                        new RdmEnumMember("green"),
+                        new RdmEnumMember("blue")}, false)
                 }
             );
 
-            Assert.Equal(((RdmEnumType)expected.Items[0]).Members[0], ((RdmEnumType)actual.Items[0]).Members[0]);
             Assert.Equal(expected, actual);
         }
 
@@ -201,7 +212,6 @@ type Company { something: other.Something }";
                 }
             );
 
-
             Assert.Equal(expected, actual);
         }
 
@@ -224,16 +234,144 @@ type Company { something: other.Something }";
             Assert.Equal(expected, actual);
         }
 
-        // [Fact]
-        // public void X()
-        // {
-        //     var content = "./a/b ";
+        [Fact]
+        public void TypeFacetsGetsParsed()
+        {
+            var content = @"
+                type Foo {
+                    prop1: String
+                    prop2: String?
+                    prop3: [String]                
+                    prop4: [String?]                
+                }
+            ";
+            var actual = parser.Parse(content, "test");
 
-        //     var tokenizer = RdmTokenizer.Tokenizer;
-        //     var tokenList = tokenizer.Tokenize(content);
+            var expected = new RdmDataModel(
+                null,
+                new[] {
+                    new RdmStructuredType("Foo", null, new [] {
+                        new RdmProperty("prop1", new RdmTypeReference("String", new RdmTypeReferenceFacets { IsNullable = false, IsMultivalued = false}), false),
+                        new RdmProperty("prop2", new RdmTypeReference("String", new RdmTypeReferenceFacets { IsNullable = true, IsMultivalued = false}), false),
+                        new RdmProperty("prop3", new RdmTypeReference("String", new RdmTypeReferenceFacets { IsNullable = false, IsMultivalued = true }), false),
+                        new RdmProperty("prop4", new RdmTypeReference("String", new RdmTypeReferenceFacets { IsNullable = true, IsMultivalued = true }), false),
+                    }, null, false)
+                }
+            );
+            Assert.Equal(expected, actual);
+        }
 
-        //     var parser = ExpressionParsers.Path;
-        //     var model = Superpower.ParserExtensions.Parse(parser, tokenList);
-        // }
+        [Fact]
+        public void MaxLengthTypeFacetsGetsParsed()
+        {
+            var content = @"
+                type Foo {
+                    prop1: String(9)
+                    prop2: String(9)?
+                    prop3: [String(9)]                
+                    prop4: [String(9)?]                
+                }
+            ";
+            var actual = parser.Parse(content, "test");
+
+            var expected = new RdmDataModel(
+                null,
+                new[] {
+                    new RdmStructuredType("Foo", null,
+                        new [] {
+                            new RdmProperty("prop1", new RdmTypeReference("String", new RdmTypeReferenceFacets { IsNullable = false, IsMultivalued = false, MaxLength = 9}), false),
+                            new RdmProperty("prop2", new RdmTypeReference("String", new RdmTypeReferenceFacets { IsNullable = true, IsMultivalued = false, MaxLength = 9}), false),
+                            new RdmProperty("prop3", new RdmTypeReference("String", new RdmTypeReferenceFacets { IsNullable = false, IsMultivalued = true, MaxLength = 9}), false),
+                            new RdmProperty("prop4", new RdmTypeReference("String", new RdmTypeReferenceFacets { IsNullable = true, IsMultivalued = true, MaxLength = 9 }), false),
+                        },
+                        null,
+                        false
+                    )
+                }
+            );
+            Assert.Equal(expected, actual);
+        }
+
+        [Fact]
+        public void DecimalTypeFacetsGetsParsed()
+        {
+            var content = @"
+                type Foo {
+                    prop1: Decimal(9,2)
+                    prop2: Decimal(9,2)?
+                    prop3: [Decimal(9,2)]                
+                    prop4: [Decimal(9,2)?]                
+                    prop5: Decimal
+                }
+            ";
+            var actual = parser.Parse(content, "test");
+
+            var expected = new RdmDataModel(
+                null,
+                new[] {
+                    new RdmStructuredType("Foo", null,
+                        new [] {
+                            new RdmProperty("prop1", new RdmTypeReference("Decimal", new RdmTypeReferenceFacets { IsNullable = false, IsMultivalued = false, Precision = 9, Scale = 2}), false),
+                            new RdmProperty("prop2", new RdmTypeReference("Decimal", new RdmTypeReferenceFacets { IsNullable = true, IsMultivalued = false, Precision = 9, Scale = 2}), false),
+                            new RdmProperty("prop3", new RdmTypeReference("Decimal", new RdmTypeReferenceFacets { IsNullable = false, IsMultivalued = true, Precision = 9, Scale = 2}), false),
+                            new RdmProperty("prop4", new RdmTypeReference("Decimal", new RdmTypeReferenceFacets { IsNullable = true, IsMultivalued = true, Precision = 9, Scale = 2}), false),
+                            new RdmProperty("prop5", new RdmTypeReference("Decimal", new RdmTypeReferenceFacets { IsNullable = false, IsMultivalued = false, Precision = null, Scale = null}), false),
+                        },
+                        null,
+                        false
+                    )
+                }
+            );
+            Assert.Equal(expected, actual);
+        }
+
+        [Fact]
+        public void TypeAnnotation()
+        {
+            var content = @" @Core.Description: ""foo"" type Foo { }";
+            var actual = parser.Parse(content, "test");
+
+            var expected = new RdmDataModel(
+                null,
+                new[] {
+                    new RdmStructuredType("Foo", null,
+                        new RdmProperty[0],
+                        null,
+                        false,
+                        new [] {
+                            new Annotation( "Core.Description", AnnotationExpression.String("foo"))
+                        }
+                    )
+                }
+            );
+            Assert.Equal(expected, actual);
+        }
+
+        [Fact]
+        public void PropertyAnnotation()
+        {
+            var content = @" type Foo { @Core.Description: ""foo"" prop1: String }";
+            var actual = parser.Parse(content, "test");
+
+            var expected = new RdmDataModel(
+                null,
+                new[] {
+                    new RdmStructuredType("Foo", null,
+                        new RdmProperty[] {
+                            new RdmProperty("prop1", new RdmTypeReference("String",  RdmTypeReferenceFacets.None),
+                                false,
+                                new [] {
+                                    new Annotation( "Core.Description", AnnotationExpression.String("foo"))
+                                }
+                            ),
+                        },
+                        null,
+                        false
+                    )
+                }
+            );
+            Assert.Null(Diff.GetFirstDifference(expected, actual));
+            Assert.Equal(expected, actual);
+        }
     }
 }

@@ -3,10 +3,10 @@ id: rsdl-abnf
 title: RAPID SDL ABNF
 ---
 
-# RAPID Pro syntax
+# RAPID Pro Syntax
 
 > DRAFT
-> December 2020
+> March 2021
 
 ## Overview
 
@@ -22,6 +22,7 @@ Note: to increase readability of the grammar, whitespace is not reflected
     - [Model](#model)
     - [Structured Type](#structured-type)
     - [Enumeration Type](#enumeration-type)
+    - [Type Definition](#type-definition)
     - [Service](#service)
     - [Annotations](#annotations)
     - [Core Syntax Elements](#core-syntax-elements)
@@ -29,107 +30,136 @@ Note: to increase readability of the grammar, whitespace is not reflected
 ### Model
 
 ```ABNF
-model        = [ namespace ] *include *modelElement
+model                = OWS [ namespace RWS ] *include [ modelElement *( RWS modelElement ) ] OWS
 
-namespace    = %s"namespace" qualifiedName
+namespace            = %s"namespace" RWS qualifiedName
 
-include      = %s"include" DQUOTE 1*CHAR DQUOTE %s"as" identifier
+include              = %s"include" RWS DQUOTE 1*CHAR DQUOTE RWS %s"as" RWS identifier RWS
 
-modelElement = structuredType / enumType / service
+modelElement         = ( structuredType / enumType / typeDefinition / service )
 ```
 
 ### Structured Type
 
 ```ABNF
-structuredType       = annotations %s"type" identifier "{" *structuredTypeMember "}"
+structuredType       = annotations [ %s"abstract" RWS ] %s"type" RWS identifier [ %s"extends" RWS qualifiedName ] OWS "{" *( OWS structuredTypeMember ) OWS "}"
 
 structuredTypeMember = property / operation ; property, action, or function
 
-property             = annotations [propertyModifier] identifier ":" typeReference
+property             = annotations [propertyModifier RWS] identifier OWS ":" OWS typeReference
 
 propertyModifier     = %s"key"
 
 typeReference        = typeName [ "?" ] / "[" typeName [ "?" ] "]"
 
-typeName             = builtInType / %s"Edm" "." identifier / qualifiedName
+typeName             = builtInType / edmType / qualifiedName
 
-builtInType          = %s"Integer" / %s"String" / %s"Boolean" / %s"DateTime" / %s"Date" / %s"Double" / %s"Decimal" / %s"TimeOfDay" / %s"Duration" 
+builtInType          = %s"Boolean"
+                     / %s"DateTime"
+                     / %s"Date"
+                     / %s"Decimal" [ "(" precision "," scale ")"]
+                     / %s"Double"
+                     / %s"Duration"
+                     / %s"Integer"
+                     / %s"String" [ "(" maxLength ")" ]
+                     / %s"TimeOfDay"
 
-operation            = annotations [operationModifier] identifier
-                       "(" [ parameter *("," parameter) ] ")"
-                       [ ":" annotations typeReference ]
+edmType              = %s"Edm" "." identifier
 
-operationModifier    = %s"action" / %s"function"
+operation            = annotations operationKind RWS identifier OWS
+                       "(" OWS [ parameter *( OWS "," OWS parameter) OWS ] ")"
+                       [ OWS ":" OWS annotations typeReference ]
 
-parameter            = annotations identifier ":" typeReference
+operationKind        = %s"action" / %s"function"
+
+parameter            = annotations identifier OWS ":" OWS typeReference
 ```
 
 ### Enumeration Type
 
 ```ABNF
-enumType             = annotations ( %s"enum" / $s"flags" ) identifier "{" 1*enumMember "}"
+enumType             = annotations ( %s"enum" / %s"flags" ) RWS identifier OWS "{" OWS 1*enumMember "}"
 
-enumMember           = identifier
+enumMember           = annotations identifier OWS
+```
+
+### Type Definition
+
+```ABNF
+typeDefinition       = annotations %s"typedef" RWS identifier OWS ":" OWS ( builtInType / edmType )
 ```
 
 ### Service
 
 ```ABNF
-service              = %s"service" "{" 1*serviceMember "}"
+service              = annotations %s"service" [ RWS identifier ] OWS "{" OWS serviceMember *( RWS serviceMember ) OWS "}"
 
-serviceMember        = entitySet / singleton / serviceOperation
+serviceMember        = annotations ( entitySet / singleton / serviceOperation )
 
-entitySet            = identifier ":" "[" qualifiedName "]"
+entitySet            = identifier OWS ":" OWS "[" qualifiedName "]"
 
-singleton            = identifier ":" qualifiedName
+singleton            = identifier OWS ":" OWS qualifiedName
 
-serviceOperation     = [ operationModifier ] identifier
-                       "(" [ parameter *("," parameter) ] ")"
-                       [ ":" typeReference ]
+serviceOperation     = operationKind RWS identifier
+                       OWS "(" OWS [ parameter *(OWS "," OWS parameter) OWS ] ")"
+                       [ OWS ":" OWS annotations typeReference ]
 ```
 
 ### Annotations
 
 ```ABNF
-annotations      = 1*annotation
+annotations          = *( annotation RWS )
 
-annotation       = "@" qualifiedName ":" annotationValue
+annotation           = "@" qualifiedName [ "#" identifier ] OWS ":" OWS annotationValue
 
-annotationValue  = "true"
-                 / "false"
-                 / "null"
-                 / number
-                 / DQUOTE 1*CHAR DQUOTE
-                 / "[" annotationValue *( [","] annotationValue ) [","] "]"
-                 / "{" property *( [","] property ) [","] "}"
+annotationValue      = %s"true"
+                     / %s"false"
+                     / %s"null"
+                     / number
+                     / DQUOTE *CHAR DQUOTE
+                     / "[" OWS [ annotationValue *( ( OWS "," OWS / RWS ) annotationValue ) OWS [ "," OWS ] ] "]"
+                     / "{" OWS [ annotationProperty *( ( OWS "," OWS /RWS ) annotationProperty ) OWS [ "," OWS ] ] "}"
+                     / "." *( "/"  identifier )
 
-property         = propertyName ":" annotationValue
+annotationProperty   = propertyName OWS ":" OWS annotationValue
 
-propertyName     = identifier / DQUOTE 1*CHAR DQUOTE
+propertyName         = identifier / DQUOTE 1*CHAR DQUOTE / "@" qualifiedName [ "#" identifier ]
 ```
 
 ### Core Syntax Elements
 
 ```ABNF
-qualifiedName   = identifier *( "." identifier )
+qualifiedName       = identifier *( "." identifier )
 
-identifier      = identInitial *identSubsequent
+identifier          = identInitial *identSubsequent
 
-identInitial    = ALPHA / "_" ; Note: actually all Unicode letters
+identInitial        = ALPHA / "_" ; Note: actually all Unicode letters
 
-identSubsequent = identInitial / DIGIT
+identSubsequent     = identInitial / DIGIT
 
-number          = DIGIT *DIGIT ["." *DIGIT ]
+number              = [ "-" ] DIGIT *DIGIT ["." *DIGIT ]
 
-ALPHA  = %x41-5A / %x61-7A
+integer             = [ "-" ] DIGIT *DIGIT
 
-DIGIT  = %x30-39
+precision           = integer
 
-CHAR   = %x20-21 / %x23-5B / %x5D-10FFFF
-       / ESCAPE ESCAPE
-       / ESCAPE DQUOTE
+scale               = integer
 
-DQUOTE = %x22              ; "
+maxLength           = integer
 
-ESCAPE = %x5C              ; \
+ALPHA               = %x41-5A / %x61-7A
+
+DIGIT               = %x30-39
+
+CHAR                = %x20-21 / %x23-5B / %x5D-10FFFF
+                    / ESCAPE ESCAPE
+                    / ESCAPE DQUOTE
+
+DQUOTE              = %x22              ; "
+
+ESCAPE              = %x5C              ; \
+
+OWS                 = *WS
+RWS                 = 1*WS
+WS                  = %x8 / %xA / %xD / %x20 ; TAB, LF, CR, SPACE
 ```

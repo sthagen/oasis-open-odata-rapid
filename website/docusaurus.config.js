@@ -10,7 +10,7 @@ module.exports = {
     navbar: {
       title: 'RAPID',
       logo: {
-        alt: 'Logo',
+        alt: 'RAPID Logo',
         src: 'img/logo.svg',
       },
       items: [
@@ -79,8 +79,7 @@ module.exports = {
           routeBasePath: 'docs',
           sidebarPath: require.resolve('./sidebars.js'),
           editUrl:
-            'https://github.com/oasis-open/odata-rapid/edit/master/docs/',
-          homePageId: 'gettingstarted'
+            'https://github.com/oasis-open/odata-rapid/edit/master/docs/'
         },
         theme: {
           customCss: require.resolve('./src/css/custom.css'),
