@@ -4,15 +4,22 @@ A collection of tools for RAPID/ODATA APIs and RSDL-based services.
 
 ## Installation and build instructions
 
-To install all tools in this monorepo run
+Note for Windows: use [PowerShell](https://github.com/PowerShell/PowerShell) for running these commands.
+
+Make sure you have [Node.js](https://nodejs.org/) installed and in the `PATH`.
+
+Install all tools in this monorepo:
 
 ```
 npm install
+npm run build
 ```
 
-Then run:
+If you had installed the tools previously and want to start from a clean slate:
 
 ```
+npm run clean
+npm install
 npm run build
 ```
 
@@ -20,4 +27,10 @@ npm run build
 
 ```
 npm run api-designer
+```
+
+## Launch OData Explorer
+
+```
+npm run odata-explorer
 ```
