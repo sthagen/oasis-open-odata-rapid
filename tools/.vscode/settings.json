@@ -1,9 +1,13 @@
 {
-    "mochaExplorer.files": "*/test/**/*.ts",
-    "mochaExplorer.require": "ts-node/register",
-    "[typescript]": {
-        "editor.defaultFormatter": "esbenp.prettier-vscode"
-    },
-    "files.insertFinalNewline": true,
-    "files.trimFinalNewlines": true,
+  "antlr4.generation": {
+    "alternativeJar": "../grammar/antlr-4.8-complete.jar",
+    "mode": "external",
+    "language": "JavaScript",
+    "outputDir": "parser"
+  },
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "files.insertFinalNewline": true,
+  "files.trimFinalNewlines": true
 }
